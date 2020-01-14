@@ -1,4 +1,5 @@
 import argparse
+import matplotlib.pyplot as plt
 
 def parse_fasta(fname):
     with open(fname, "r") as fh:
@@ -77,7 +78,7 @@ def parse_fastq(fname):
 
 def argparser():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--fastq", type=argparse.FileType('r'),
+    parser.add_argument("--fastq", dest="fastq",
                     help="input fastq file containing sequenced reads")
     parser.add_argument("--ref_fasta", dest="ref", help="fasta file containing reference sequences")
     args = parser.parse_args()
@@ -90,8 +91,9 @@ def calculate_read_metrics(fastq_file):
     min_readlength = None
     max_readlength = 0
     read_n50 = None
-    read_lengths = {}
-    mean_qual = 0
+    read_lengths = []
+    mean_qual = None
+    sum_qual = 0
     # iterate over all reads in the given fastq file
     for identifier, sequence, quality in parse_fastq(fastq_file):
         # increase read counter by 1 for every read
@@ -109,33 +111,33 @@ def calculate_read_metrics(fastq_file):
         if len(sequence) > max_readlength:
             max_readlength = len(sequence)
         
+        read_lengths.append(len(sequence))
         # increase counter for current read length in read length dictionary
-        if len(sequence) in read_lengths:
-            read_lengths[len(sequence)] += 1
-        else:
-            read_lengths[len(sequence)] = 1
+        #if len(sequence) in read_lengths:
+        #    read_lengths[len(sequence)] += 1
+        # else:
+        #    read_lengths[len(sequence)] = 1
 
-        sum_qual = 0
+        
         # first sum up all quality values of all bases of the read
         for q in quality:#
             # use Sanger encoding of quality values
             sum_qual += ord(q) - 33
         # add mean quality of the read to the sum of mean read qualities
-        mean_qual += sum_qual/len(quality)
 
     # get mean quality score of all reads
-    mean_qual /= read_number
+    mean_qual = sum_qual / bp_number
     
     # set counter to 0 for not occuring read lengths
-    for i in range(1, max_readlength, 1):
-        if not i in read_lengths:
-            read_lengths[i] = 0
+    #for i in range(1, max_readlength, 1):
+        #if not i in read_lengths:
+            #read_lengths[i] = 0
 
     n50_bp = 0;
     # iterate read length counter dict in descending order
-    for i in sorted(read_lengths.keys(), reverse=True):
+    for i in sorted(read_lengths, reverse=True):
         # add bp in reads with that length to the counter
-        n50_bp += i * read_lengths[i]
+        n50_bp += i
         # if more than half of all bp is in reads longer than i => stop iteration
         # and set read_n50 to i
         if n50_bp >= bp_number/2:
@@ -150,12 +152,17 @@ def calculate_read_metrics(fastq_file):
     print("Mean Read Length : ", bp_number/read_number)
     print("Read N50 : ", read_n50)
     print("Mean Quality Score : ", mean_qual)
+    return read_lengths
 
 def main():
     
     args = argparser()
+    lengths = calculate_read_metrics(args.fastq)
+
+    #print(lengths.values())
+    plt.hist(lengths, bins=50)
+    plt.show()
     
-    print(args.ref)
     
 
 
