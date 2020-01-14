@@ -32,9 +32,10 @@ def parse_fasta(fname):
         # yielding last fasta entry
         yield identifier, sequence
 
-def parse_fastq(fname):
-    with open(fname, "r") as fh:
 
+def parse_fastq(fname):
+
+    with open(fname, "r") as fh:
         # Create variables for storing the identifiers and the sequence.
         identifier = None
         sequence = []
@@ -82,9 +83,78 @@ def argparser():
     args = parser.parse_args()
     return args
 
+def calculate_read_metrics(fastq_file):
+    # initialize counting variables
+    read_number = 0
+    bp_number = 0
+    min_readlength = None
+    max_readlength = 0
+    read_n50 = None
+    read_lengths = {}
+    mean_qual = 0
+    # iterate over all reads in the given fastq file
+    for identifier, sequence, quality in parse_fastq(fastq_file):
+        # increase read counter by 1 for every read
+        read_number += 1
+        # add bp count of current read to sum of all read base pairs
+        bp_number += len(sequence)
+        # set length of first read to minimum read length
+        # or update minimum read length if current read is smaller than minimum read length
+        if min_readlength == None:
+            min_readlength = len(sequence)
+        elif len(sequence) < min_readlength:
+            min_readlength = len(sequence)
+
+        # update maximum read length if current read length is bigger than maximum read length
+        if len(sequence) > max_readlength:
+            max_readlength = len(sequence)
+        
+        # increase counter for current read length in read length dictionary
+        if len(sequence) in read_lengths:
+            read_lengths[len(sequence)] += 1
+        else:
+            read_lengths[len(sequence)] = 1
+
+        sum_qual = 0
+        # first sum up all quality values of all bases of the read
+        for q in quality:#
+            # use Sanger encoding of quality values
+            sum_qual += ord(q) - 33
+        # add mean quality of the read to the sum of mean read qualities
+        mean_qual += sum_qual/len(quality)
+
+    # get mean quality score of all reads
+    mean_qual /= read_number
+    
+    # set counter to 0 for not occuring read lengths
+    for i in range(1, max_readlength, 1):
+        if not i in read_lengths:
+            read_lengths[i] = 0
+
+    n50_bp = 0;
+    # iterate read length counter dict in descending order
+    for i in sorted(read_lengths.keys(), reverse=True):
+        # add bp in reads with that length to the counter
+        n50_bp += i * read_lengths[i]
+        # if more than half of all bp is in reads longer than i => stop iteration
+        # and set read_n50 to i
+        if n50_bp >= bp_number/2:
+            read_n50 = i
+            break
+
+
+    print("Number Reads : ", read_number)
+    print("Number of Base Pairs : ", bp_number)
+    print("Maximum Read Length : ", max_readlength)
+    print("Minimum Read Length : ", min_readlength)
+    print("Mean Read Length : ", bp_number/read_number)
+    print("Read N50 : ", read_n50)
+    print("Mean Quality Score : ", mean_qual)
+
 def main():
     
     args = argparser()
+    
     print(args.ref)
     
 
