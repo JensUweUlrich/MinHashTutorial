@@ -92,6 +92,7 @@ def calculate_read_metrics(fastq_file):
     max_readlength = 0
     read_n50 = None
     read_lengths = []
+    read_qualities = []
     mean_qual = None
     sum_qual = 0
     # iterate over all reads in the given fastq file
@@ -112,28 +113,20 @@ def calculate_read_metrics(fastq_file):
             max_readlength = len(sequence)
         
         read_lengths.append(len(sequence))
-        # increase counter for current read length in read length dictionary
-        #if len(sequence) in read_lengths:
-        #    read_lengths[len(sequence)] += 1
-        # else:
-        #    read_lengths[len(sequence)] = 1
-
         
+        current_quality = 0
         # first sum up all quality values of all bases of the read
         for q in quality:#
             # use Sanger encoding of quality values
             sum_qual += ord(q) - 33
-        # add mean quality of the read to the sum of mean read qualities
+            current_quality += ord(q) - 33
 
+        if len(quality) > 0:
+            read_qualities.append(current_quality / len(quality))
     # get mean quality score of all reads
     mean_qual = sum_qual / bp_number
     
-    # set counter to 0 for not occuring read lengths
-    #for i in range(1, max_readlength, 1):
-        #if not i in read_lengths:
-            #read_lengths[i] = 0
-
-    n50_bp = 0;
+    n50_bp = 0
     # iterate read length counter dict in descending order
     for i in sorted(read_lengths, reverse=True):
         # add bp in reads with that length to the counter
@@ -152,16 +145,21 @@ def calculate_read_metrics(fastq_file):
     print("Mean Read Length : ", bp_number/read_number)
     print("Read N50 : ", read_n50)
     print("Mean Quality Score : ", mean_qual)
-    return read_lengths
+
+    plt.hist(read_lengths, bins=500)
+    plt.show()
+
+    plt.hist(read_qualities)
+    plt.show()
+    
 
 def main():
     
     args = argparser()
-    lengths = calculate_read_metrics(args.fastq)
+    calculate_read_metrics(args.fastq)
 
     #print(lengths.values())
-    plt.hist(lengths, bins=50)
-    plt.show()
+    
     
     
 
