@@ -87,6 +87,7 @@ def argparser():
     parser.add_argument("--ref_fasta", dest="ref", help="fasta file containing reference sequences")
     parser.add_argument("--kmer-size", dest="K", type=int, help="size of the kmers used for minhashing")
     parser.add_argument("--sketch-size", dest="S", type=int, help="size of the minhash sketches")
+    parser.add_argument("--output", dest="out", help="fastq output file")
     args = parser.parse_args()
     return args
 
@@ -108,13 +109,15 @@ def calculate_read_metrics(fastq_file):
         # add bp count of current read to sum of all read base pairs
         bp_number += len(sequence)
         # set length of first read to minimum read length
-        # or update minimum read length if current read is smaller than minimum read length
+        # or update minimum read length if current read is smaller than minimum
+        # read length
         if min_readlength == None:
             min_readlength = len(sequence)
         elif len(sequence) < min_readlength:
             min_readlength = len(sequence)
 
-        # update maximum read length if current read length is bigger than maximum read length
+        # update maximum read length if current read length is bigger than
+        # maximum read length
         if len(sequence) > max_readlength:
             max_readlength = len(sequence)
         
@@ -137,9 +140,10 @@ def calculate_read_metrics(fastq_file):
     for i in sorted(read_lengths, reverse=True):
         # add bp in reads with that length to the counter
         n50_bp += i
-        # if more than half of all bp is in reads longer than i => stop iteration
+        # if more than half of all bp is in reads longer than i => stop
+        # iteration
         # and set read_n50 to i
-        if n50_bp >= bp_number/2:
+        if n50_bp >= bp_number / 2:
             read_n50 = i
             break
 
@@ -148,7 +152,7 @@ def calculate_read_metrics(fastq_file):
     print("Number of Base Pairs : ", bp_number)
     print("Maximum Read Length : ", max_readlength)
     print("Minimum Read Length : ", min_readlength)
-    print("Mean Read Length : ", bp_number/read_number)
+    print("Mean Read Length : ", bp_number / read_number)
     print("Read N50 : ", read_n50)
     print("Mean Quality Score : ", mean_qual)
 
@@ -172,18 +176,20 @@ def hash_kmer(kmer):
     hash_v = 0
     # iterate over all characters of the kmer for hash value computation
     for i in range(0, len(kmer)):
-        hash_v += nts[kmer_reverse[i]] * 4^i
+        hash_v += int(nts[kmer_reverse[i]]) * (4 ** i)
 
-    # XOR hash value with a random integer in order to avoid lexicographical sorting of kmers
-    # otherwise kmers beginning with A would always have the smallest hash value
-    # could interfere jaccard similarity for small sketch sizes 
+    # XOR hash value with a random integer in order to avoid lexicographical
+    # sorting of kmers
+    # otherwise kmers beginning with A would always have the smallest hash
+    # value
+    # could interfere jaccard similarity for small sketch sizes
     hash_v ^= rand
     return hash_v
 
 # builds the minhash sketch for a give dna sequence
 # sequence: dna sequence
 # k : kmer size
-# s : sketch size 
+# s : sketch size
 def build_sketch(sequence, k, s):
     # initialize resulting sketch of hash values
     sketch = []
@@ -191,12 +197,14 @@ def build_sketch(sequence, k, s):
     # store hash values of the kmers within a list
     for i in range(0, len(sequence) - k):
         current_kmer = sequence[i:i + k]
-        sketch.append(hash_kmer(current_kmer))
+        h = hash_kmer(current_kmer)
+        if not h in sketch:
+            sketch.append(h)
 
     # keep only the smallest s hash values of the sketch
     if (len(sketch) > s):
         sorted_sketch = sorted(sketch)
-        sketch = sorted_sketch[:s + 1]
+        sketch = sorted_sketch[:s]
 
     return sketch
 
@@ -204,7 +212,8 @@ def build_sketch(sequence, k, s):
 def estimate_jaccard(sketch1, sketch2):
     # initialize counter for hash values contained in both sketches
     counter = 0
-    # if sketches are of different size, iterate over the elements of the smaller sketch
+    # if sketches are of different size, iterate over the elements of the
+    # smaller sketch
     # increment the counter if hash value is part of both sketches
     s = len(sketch1)
     if (len(sketch1) <= len(sketch2)):
@@ -216,11 +225,31 @@ def estimate_jaccard(sketch1, sketch2):
         for h in sketch2:
             if h in sketch1:
                 counter += 1
+    print(counter)
+    print(s)
     if s == 0:
         return 0
     else:
         return counter / s
 
+
+def write_fastq_record(fh, id, seq, qual):
+    # sequence identifier line
+    fh.write("@" + id + "\n")
+    # divide sequence in chunks of 70 chars and print lines seperately
+    for i in range(0, int(len(seq) / 70) + 1):
+        s = seq[(i * 70) : ((i + 1) * 70)]
+        fh.write("".join(s) + "\n")
+    # last sequence line
+    #fh.write("".join(seq[int(len(seq) / 70) + 1 :]) + "\n")
+    # quality identifier line
+    fh.write("+" + id + "\n")
+    # divide qualities in chunks of 70 chars and print lines seperately
+    for i in range(0, int(len(qual) / 70) + 1):
+        s = qual[(i * 70) : ((i + 1) * 70)]
+        fh.write("".join(s) + "\n")
+    # last quality line
+    #fh.write("".join(qual[int(len(qual) / 70) + 1 :]) + "\n")
 def main():
     
     args = argparser()
@@ -234,22 +263,29 @@ def main():
     
     control_counter = 0
     # iterate over all reads in fastq file
+    fh = open(args.out, "w")
+    found = False
     for identifier, sequence, quality in parse_fastq(args.fastq):
         # build sketch for current read
         read_sketch = build_sketch(sequence, args.K, args.S)
         for ref_sketch in ref_sketches.values():
             # calculate jaccard similarity for reference and read sketch
-            if estimate_jaccard(ref_sketch, read_sketch) >= 0.98:
+            if estimate_jaccard(ref_sketch, read_sketch) >= 0.8:
+                print(str(ref_sketch))
+                print(str(read_sketch))
                 control_counter += 1
+                write_fastq_record(fh, identifier, sequence, quality)
+                found = True
+        if found:
+            break
 
     print("Number of control reads : ", control_counter)
-
+    fh.close()
 
     #print(lengths.values())
     
     
     
-
 
 if __name__ == '__main__':
     main()
