@@ -1,5 +1,9 @@
 import argparse
+import random
 import matplotlib.pyplot as plt
+
+nts = {}
+rand = random.randint(1,1000)
 
 def parse_fasta(fname):
     with open(fname, "r") as fh:
@@ -81,6 +85,8 @@ def argparser():
     parser.add_argument("--fastq", dest="fastq",
                     help="input fastq file containing sequenced reads")
     parser.add_argument("--ref_fasta", dest="ref", help="fasta file containing reference sequences")
+    parser.add_argument("--kmer-size", dest="K", type=int, help="size of the kmers used for minhashing")
+    parser.add_argument("--sketch-size", dest="S", type=int, help="size of the minhash sketches")
     args = parser.parse_args()
     return args
 
@@ -152,11 +158,92 @@ def calculate_read_metrics(fastq_file):
     plt.hist(read_qualities)
     plt.show()
     
+def initialize_nts():
+    nts['A'] = 0
+    nts['C'] = 1
+    nts['G'] = 2
+    nts['T'] = 3
+    nts['N'] = 4
+
+# calculates the hash value for a given kmer
+def hash_kmer(kmer):
+    # reverse the kmer first
+    kmer_reverse = kmer[::-1]
+    hash_v = 0
+    # iterate over all characters of the kmer for hash value computation
+    for i in range(0, len(kmer)):
+        hash_v += nts[kmer_reverse[i]] * 4^i
+
+    # XOR hash value with a random integer in order to avoid lexicographical sorting of kmers
+    # otherwise kmers beginning with A would always have the smallest hash value
+    # could interfere jaccard similarity for small sketch sizes 
+    hash_v ^= rand
+    return hash_v
+
+# builds the minhash sketch for a give dna sequence
+# sequence: dna sequence
+# k : kmer size
+# s : sketch size 
+def build_sketch(sequence, k, s):
+    # initialize resulting sketch of hash values
+    sketch = []
+    # iterate over all kmers of the given sequence
+    # store hash values of the kmers within a list
+    for i in range(0, len(sequence) - k):
+        current_kmer = sequence[i:i + k]
+        sketch.append(hash_kmer(current_kmer))
+
+    # keep only the smallest s hash values of the sketch
+    if (len(sketch) > s):
+        sorted_sketch = sorted(sketch)
+        sketch = sorted_sketch[:s + 1]
+
+    return sketch
+
+# calculate jaccard similarity for given sketches
+def estimate_jaccard(sketch1, sketch2):
+    # initialize counter for hash values contained in both sketches
+    counter = 0
+    # if sketches are of different size, iterate over the elements of the smaller sketch
+    # increment the counter if hash value is part of both sketches
+    s = len(sketch1)
+    if (len(sketch1) <= len(sketch2)):
+        for h in sketch1:
+            if h in sketch2:
+                counter += 1
+    else:
+        s = len(sketch2)
+        for h in sketch2:
+            if h in sketch1:
+                counter += 1
+    if s == 0:
+        return 0
+    else:
+        return counter / s
 
 def main():
     
     args = argparser()
-    calculate_read_metrics(args.fastq)
+    # initialize nt translation
+    initialize_nts()
+
+    # build sketch of positive control
+    ref_sketches = {}
+    for id, seq in parse_fasta(args.ref):
+        ref_sketches[id] = build_sketch(seq, args.K, args.S)
+    
+    control_counter = 0
+    # iterate over all reads in fastq file
+    for identifier, sequence, quality in parse_fastq(args.fastq):
+        # build sketch for current read
+        read_sketch = build_sketch(sequence, args.K, args.S)
+        for ref_sketch in ref_sketches.values():
+            # calculate jaccard similarity for reference and read sketch
+            if estimate_jaccard(ref_sketch, read_sketch) >= 0.98:
+                control_counter += 1
+
+    print("Number of control reads : ", control_counter)
+
 
     #print(lengths.values())
     
