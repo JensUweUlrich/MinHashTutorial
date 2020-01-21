@@ -1,5 +1,6 @@
 import argparse
 import random
+import bisect
 import matplotlib.pyplot as plt
 
 nts = {}
@@ -186,6 +187,29 @@ def hash_kmer(kmer):
     hash_v ^= rand
     return hash_v
 
+# calculate reverse complement of a given kmer
+def reverse_complement(kmer):
+    kmer_reverse = kmer[::-1]
+    rev_comp = []
+    for n in kmer_reverse:
+        if n == 'A':
+            rev_comp.append('T')
+            continue
+        if n == 'C':
+            rev_comp.append('G')
+            continue
+        if n == 'G':
+            rev_comp.append('T')
+            continue
+        if n == 'T':
+            rev_comp.append('A')
+            continue
+        if n == 'N':
+            rev_comp.append('N')
+
+    return rev_comp
+
+
 # builds the minhash sketch for a give dna sequence
 # sequence: dna sequence
 # k : kmer size
@@ -195,16 +219,30 @@ def build_sketch(sequence, k, s):
     sketch = []
     # iterate over all kmers of the given sequence
     # store hash values of the kmers within a list
+    max_h = 0
     for i in range(0, len(sequence) - k):
         current_kmer = sequence[i:i + k]
         h = hash_kmer(current_kmer)
-        if not h in sketch:
-            sketch.append(h)
+        # take only thge smaller hash value of current kmer abnd its reverse complement
+        h_rc = hash_kmer(reverse_complement(current_kmer))
+        if h_rc < h:
+            h = h_rc
 
-    # keep only the smallest s hash values of the sketch
-    if (len(sketch) > s):
-        sorted_sketch = sorted(sketch)
-        sketch = sorted_sketch[:s]
+        # add first hash value to the sketch 
+        if max_h == 0:
+            sketch.append(h)
+            max_h = h
+            continue
+
+        # add further hash values to the sketch if h is not already in the sketch
+        # and either the sketch is not full or hash value is smaller than the maximum hash value in the sketch
+        if not h in sketch and (len(sketch) < s or h < max_h):
+            # insert hash value and keep list sorted
+            bisect.insort(sketch, h)
+            if h > max_h:
+                max_h = h
+            if len(sketch) > s:
+                sketch = sketch[:s]
 
     return sketch
 
@@ -240,16 +278,15 @@ def write_fastq_record(fh, id, seq, qual):
     for i in range(0, int(len(seq) / 70) + 1):
         s = seq[(i * 70) : ((i + 1) * 70)]
         fh.write("".join(s) + "\n")
-    # last sequence line
-    #fh.write("".join(seq[int(len(seq) / 70) + 1 :]) + "\n")
+    
     # quality identifier line
     fh.write("+" + id + "\n")
     # divide qualities in chunks of 70 chars and print lines seperately
     for i in range(0, int(len(qual) / 70) + 1):
         s = qual[(i * 70) : ((i + 1) * 70)]
         fh.write("".join(s) + "\n")
-    # last quality line
-    #fh.write("".join(qual[int(len(qual) / 70) + 1 :]) + "\n")
+    
+
 def main():
     
     args = argparser()
