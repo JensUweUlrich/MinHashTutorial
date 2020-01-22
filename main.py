@@ -199,7 +199,7 @@ def reverse_complement(kmer):
             rev_comp.append('G')
             continue
         if n == 'G':
-            rev_comp.append('T')
+            rev_comp.append('C')
             continue
         if n == 'T':
             rev_comp.append('A')
@@ -263,8 +263,6 @@ def estimate_jaccard(sketch1, sketch2):
         for h in sketch2:
             if h in sketch1:
                 counter += 1
-    print(counter)
-    print(s)
     if s == 0:
         return 0
     else:
@@ -286,7 +284,13 @@ def write_fastq_record(fh, id, seq, qual):
         s = qual[(i * 70) : ((i + 1) * 70)]
         fh.write("".join(s) + "\n")
     
-
+def add_entry(dict, identifier, sequence, quality, jaccard):
+    entry = {}
+    entry['jaccard'] = jaccard
+    entry['sequence'] = sequence
+    entry['quality'] = quality
+    dict[identifier] = entry
+   
 def main():
     
     args = argparser()
@@ -298,28 +302,40 @@ def main():
     for id, seq in parse_fasta(args.ref):
         ref_sketches[id] = build_sketch(seq, args.K, args.S)
     
-    control_counter = 0
     # iterate over all reads in fastq file
-    fh = open(args.out, "w")
-    found = False
+    
+    result = {}
+    min_jacc = 1.0
     for identifier, sequence, quality in parse_fastq(args.fastq):
         # build sketch for current read
         read_sketch = build_sketch(sequence, args.K, args.S)
         for ref_sketch in ref_sketches.values():
             # calculate jaccard similarity for reference and read sketch
-            if estimate_jaccard(ref_sketch, read_sketch) >= 0.8:
-                print(str(ref_sketch))
-                print(str(read_sketch))
-                control_counter += 1
-                write_fastq_record(fh, identifier, sequence, quality)
-                found = True
-        if found:
-            break
+            jacc = estimate_jaccard(ref_sketch, read_sketch)
+            # add first 10 entries to the dictionary
+            if len(result) < 10:
+                add_entry(result, identifier, sequence, quality, jacc)
+                if float(jacc) < float(min_jacc):
+                    min_jacc = jacc
+            else:
+                if float(jacc) > float(min_jacc):
+                    d_key = None
+                    for k, v in result.items():
+                        if float(v['jaccard']) == float(min_jacc):
+                            d_key = k
+                            break
+                    del result[d_key]
+                    add_entry(result, identifier, sequence, quality, jacc)
+                    min_jacc = 1.0
+                    for k, v in result.items():
+                        if float(v['jaccard']) < float(min_jacc):
+                            min_jacc = v['jaccard']
 
-    print("Number of control reads : ", control_counter)
+    fh = open(args.output, "w")
+    for k,v in result.items():
+        write_fastq_record(fh, k, v['sequence'], v['quality'])
+    
     fh.close()
-
-    #print(lengths.values())
     
     
     
